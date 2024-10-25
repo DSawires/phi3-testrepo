@@ -119,7 +119,7 @@ def main():
     
     # Initialize your Phi-3 model
     print("Initializing model...")
-    from model import Phi3Model  # Your model implementation
+    from model import Transformer as Phi3Model  # Your model implementation
     model = Phi3Model(
         hidden_dim=3072,
         num_heads=32,
