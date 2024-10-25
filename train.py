@@ -121,9 +121,6 @@ def main():
     print("Initializing model...")
     from model import Transformer as Phi3Model  # Your model implementation
     model = Phi3Model(
-        hidden_dim=3072,
-        num_heads=32,
-        num_layers=32,
         vocab_size=tokenizer.vocab_size
     ).to(device)
     print("Model initialized")
