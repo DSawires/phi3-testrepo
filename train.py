@@ -119,10 +119,18 @@ def main():
     
     # Initialize your Phi-3 model
     print("Initializing model...")
-    from model import Transformer as Phi3Model  # Your model implementation
-    model = Phi3Model(
-        vocab_size=tokenizer.vocab_size
-    ).to(device)
+    from model import Transformer as Phi3Model, ModelArgs  # Your model implementation
+
+    model_args = ModelArgs(
+        dim=3072,           # Equivalent to hidden_dim
+        n_heads=32,
+        n_layers=32,
+        vocab_size=tokenizer.vocab_size,
+        max_seq_len=4096  # Make sure this matches your use case
+    )
+
+    # Initialize the model using ModelArgs
+    model = Transformer(model_args).to(device)
     print("Model initialized")
     
     # Create dataloaders
