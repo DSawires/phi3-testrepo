@@ -119,7 +119,7 @@ def main():
     
     # Initialize your Phi-3 model
     print("Initializing model...")
-    from model import Transformer as Phi3Model, ModelArgs  # Your model implementation
+    from model import Transformer, ModelArgs  # Your model implementation
 
     model_args = ModelArgs(
         dim=3072,           # Equivalent to hidden_dim
