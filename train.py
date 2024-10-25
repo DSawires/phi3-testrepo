@@ -1,62 +1,41 @@
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from datasets import load_dataset
+from transformers import AutoTokenizer, get_scheduler
 from torch.optim import AdamW
 import math
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple
 import wandb
 from tqdm import tqdm
-import numpy as np
-from tokenizer import Tokenizer  # Your custom tokenizer
-
-class TextDataset(Dataset):
-    def __init__(self, texts: List[str], tokenizer: Tokenizer, max_length: int):
-        self.encoded_texts = []
-        
-        for text in texts:
-            # Encode with BOS and EOS tokens
-            tokens = tokenizer.encode(text, bos=True, eos=True)
-            
-            # Truncate or pad sequence
-            if len(tokens) > max_length:
-                tokens = tokens[:max_length]
-            else:
-                tokens = tokens + [tokenizer.pad_id] * (max_length - len(tokens))
-            
-            self.encoded_texts.append(tokens)
-    
-    def __len__(self):
-        return len(self.encoded_texts)
-    
-    def __getitem__(self, idx):
-        tokens = self.encoded_texts[idx]
-        return {
-            'input_ids': torch.tensor(tokens, dtype=torch.long),
-            'attention_mask': torch.tensor([1 if t != self.tokenizer.pad_id else 0 for t in tokens], 
-                                        dtype=torch.long)
-        }
 
 def create_dataloader(
     dataset_name: str,
-    tokenizer: Tokenizer,
+    tokenizer: AutoTokenizer,
     batch_size: int,
     max_length: int,
     split: str = "train"
 ) -> DataLoader:
-    """Create a dataloader using the custom tokenizer."""
-    # Load raw dataset
+    """Create a dataloader from a HuggingFace dataset."""
     dataset = load_dataset(dataset_name, split=split)
     
-    # Create custom dataset with tokenization
-    custom_dataset = TextDataset(
-        texts=dataset['text'],
-        tokenizer=tokenizer,
-        max_length=max_length
+    def tokenize_function(examples):
+        return tokenizer(
+            examples['text'],
+            truncation=True,
+            max_length=max_length,
+            padding="max_length",
+            return_tensors="pt"
+        )
+    
+    tokenized_dataset = dataset.map(
+        tokenize_function,
+        batched=True,
+        remove_columns=dataset.column_names
     )
     
     return DataLoader(
-        custom_dataset,
+        tokenized_dataset,
         batch_size=batch_size,
         shuffle=(split == "train"),
         num_workers=4
@@ -68,8 +47,7 @@ def train_epoch(
     optimizer: torch.optim.Optimizer,
     lr_scheduler: Optional[torch.optim.lr_scheduler.LRScheduler],
     device: torch.device,
-    epoch: int,
-    tokenizer: Tokenizer
+    epoch: int
 ) -> float:
     """Train for one epoch."""
     model.train()
@@ -119,7 +97,6 @@ def main():
     # Configuration
     config = {
         'dataset_name': 'roneneldan/TinyStories',  # Replace with your dataset
-        'tokenizer_path': 'llama/tokenizer.model',  # Path to your tokenizer.model file
         'max_length': 4096,
         'batch_size': 8,
         'learning_rate': 1e-4,
@@ -133,26 +110,33 @@ def main():
     
     # Device setup
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
     
     # Initialize tokenizer
-    tokenizer = Tokenizer(model_path=config['tokenizer_path'])
+    print("Loading tokenizer...")
+    tokenizer = AutoTokenizer.from_pretrained("codellama/CodeLlama-7b-hf")
+    print(f"Tokenizer loaded. Vocabulary size: {tokenizer.vocab_size}")
     
     # Initialize your Phi-3 model
+    print("Initializing model...")
     from model import Phi3Model  # Your model implementation
     model = Phi3Model(
         hidden_dim=3072,
         num_heads=32,
         num_layers=32,
-        vocab_size=tokenizer.n_words  # Use tokenizer's vocabulary size
+        vocab_size=tokenizer.vocab_size
     ).to(device)
+    print("Model initialized")
     
     # Create dataloaders
+    print("Creating dataloader...")
     train_dataloader = create_dataloader(
         config['dataset_name'],
         tokenizer,
         config['batch_size'],
         config['max_length']
     )
+    print(f"Dataloader created with {len(train_dataloader)} batches")
     
     # Initialize optimizer
     optimizer = AdamW(
@@ -162,7 +146,6 @@ def main():
     )
     
     # Initialize learning rate scheduler
-    from transformers import get_scheduler
     num_training_steps = len(train_dataloader) * config['num_epochs']
     lr_scheduler = get_scheduler(
         "cosine",
@@ -172,6 +155,7 @@ def main():
     )
     
     # Training loop
+    print("Starting training...")
     for epoch in range(config['num_epochs']):
         avg_loss = train_epoch(
             model,
@@ -179,19 +163,20 @@ def main():
             optimizer,
             lr_scheduler,
             device,
-            epoch,
-            tokenizer
+            epoch
         )
         
         print(f"Epoch {epoch} average loss: {avg_loss}")
         
         # Save checkpoint
+        checkpoint_path = f'checkpoint_epoch_{epoch}.pt'
         torch.save({
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'loss': avg_loss,
-        }, f'checkpoint_epoch_{epoch}.pt')
+        }, checkpoint_path)
+        print(f"Checkpoint saved to {checkpoint_path}")
 
 if __name__ == "__main__":
     main()
